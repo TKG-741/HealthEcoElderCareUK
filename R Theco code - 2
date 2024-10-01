@@ -1,0 +1,295 @@
+# R Theco code - 2
+
+rm(list = ls())
+
+# Basic information
+Strategies <- c("Baseline", "Frailty_retard", "Morbidity_reduction", "New_HSCR", "Financing")  # strategy names
+n_age_init <- 50  # age at baseline
+n_age_max <- 100  # maximum age of follow up
+n_t <- n_age_max - n_age_init  # time horizon, number of cycles
+d_r <- 0.035  # equal discount of costs and QALYs by 3%
+
+# calculate discount weight for each cycle
+v_dwe <- v_dwc <- 1 / (1 + d_r) ^ (0:(n_t-1))  # discount weight (equal discounting is assumed for costs and effects)
+
+
+# Transition probabilities (per cycle)
+p_FitFit <- 0.95
+p_FitMil <- 0.047
+p_FitMod <- 0.001
+p_FitSev <- 0.0
+p_FitDth <- 0.002
+
+p_MilFit <- 0.0
+p_MilMil <- 0.953
+p_MilMod <- 0.04
+p_MilSev <- 0.001
+p_MilDth <- 0.006
+
+p_ModFit <- 0.0
+p_ModMil <- 0.0
+p_ModMod <- 0.947
+p_ModSev <- 0.038
+p_ModDth <- 0.015
+
+p_SevFit <- 0.0
+p_SevMil <- 0.0
+p_SevMod <- 0.0
+p_SevSev <- 0.966
+p_SevDth <- 0.034
+
+p_DthFit <- 0.0
+p_DthMil <- 0.0
+p_DthMod <- 0.0
+p_DthSev <- 0.0
+p_DthDth <- 1
+
+# State names
+v_n <- c("Fit", "Mild", "Mod", "Sev", "Dead")  # the 5 states of the model
+n_states <- length(v_n)  # number of health states
+
+# Transition probability matrix for Basecase
+m_P <- matrix(data = NA,
+              nrow = n_states,
+              ncol = n_states,
+              dimnames = list(v_n, v_n))
+
+# Fill the transition matrix
+m_P["Fit", ] <- c(p_FitFit, p_FitMil, p_FitMod, p_FitSev, p_FitDth)
+m_P["Mild", ] <- c(p_MilFit, p_MilMil, p_MilMod, p_MilSev, p_MilDth)
+m_P["Mod", ] <- c(p_ModFit, p_ModMil, p_ModMod, p_ModSev, p_ModDth)
+m_P["Sev", ] <- c(p_SevFit, p_SevMil, p_SevMod, p_SevSev, p_SevDth)
+m_P["Dead", ] <- c(p_DthFit, p_DthMil, p_DthMod, p_DthSev, p_DthDth)
+
+# Check the matrix
+print(m_P)
+
+# Check rows add up to 1
+print(rowSums(m_P))
+
+
+
+# create empty Markov trace
+m_TR <- matrix(data = NA,
+               nrow = n_t,
+               ncol = n_states,
+               dimnames = list(1:n_t, v_n))
+
+head(m_TR)      # The head() function enables you to view the top of a table rather than the full matrix
+
+
+# initialize Markov trace
+m_TR[1, ] <- c("Fit" = 0.9, "Mild" = 0.09, "Mod" = 0.009, "Sev" = 0.001, "Dth" = 0)
+
+
+# Run the model for a single cycle
+m_TR[2, ] <- m_TR[1, ] %*% m_P
+
+
+# Display the first two rows of the markov trace matrix
+m_TR[c(1:2), ]
+
+
+## Create Markov Trace
+
+for (t in 2:n_t){ # throughout the number of cycles
+  
+  # estimate cycle of Markov trace
+  m_TR[t, ] <- m_TR[t - 1, ] %*% m_P
+  
+}
+
+head(m_TR)  # head shows us the first six rows by default.
+m_TR
+
+# check to make sure looks correct
+plot(x = 0:(n_t-1),
+     y = m_TR[, "Fit"],
+     col = "green",
+     type = "l",
+     ylim = c(0,1),
+     xlim = c(1, 50),
+     ylab = "Proportion",
+     xlab = "Cycles")
+lines(m_TR[, "Mild"], col = "blue")
+lines(m_TR[, "Mod"], col = "purple")
+lines(m_TR[, "Sev"], col = "orange")
+lines(m_TR[, "Dead"], col = "red")
+legend(x = 25, 
+       y = 1,
+       legend=c("Fit","Mild", "Mod", "Sev", "Dead"),
+       col=c("green","blue", "purple", "orange", "red"), 
+       lty=c(1,1,1),  
+       cex=0.8)
+
+
+##HSCR Use Calculation: Resource use values for GP, ED, Hospital etc..defined for each Frailty state.
+
+# Fit
+Fit <- c(GP_elective = 5.5275, GP_emergent = 4.5225, ED_emergent = 0.0145, 
+         Hosp_elective = 0.24, Hosp_emergent = 0.15, Comm_care = 0.705, 
+         SS = 3.625, NH = 0)
+
+# Mild
+Mild <- c(GP_elective = 6.875, GP_emergent = 5.625, ED_emergent = 0.0552, 
+          Hosp_elective = 0.37, Hosp_emergent = 0.24, Comm_care = 2.088, 
+          SS = 27.6, NH = 0.03)
+
+# Moderate
+Moderate <- c(GP_elective = 7.7825, GP_emergent = 6.3675, ED_emergent = 0.10735, 
+              Hosp_elective = 0.45, Hosp_emergent = 0.36, Comm_care = 2.736, 
+              SS = 80.5125, NH = 0.06)
+
+# Severe
+Severe <- c(GP_elective = 8.3985, GP_emergent = 6.8715, ED_emergent = 0.32205, 
+            Hosp_elective = 0.47, Hosp_emergent = 0.46, Comm_care = 8.208, 
+            SS = 322.05, NH = 0.09)
+
+# Initialize the HSCR_use matrix
+resource_types <- c("GP_elective", "GP_emergent", "ED_emergent", 
+                    "Hosp_elective", "Hosp_emergent", "Comm_care", 
+                    "SS", "NH")
+
+HSCR_use <- matrix(NA, nrow = n_t, ncol = length(resource_types), 
+                   dimnames = list(1:n_t, resource_types))
+
+# Populate the HSCR_use matrix
+for (i in 1:n_t) {
+  for (j in 1:length(resource_types)) {
+    HSCR_use[i, j] <- m_TR[i, "Fit"] * Fit[resource_types[j]] +
+      m_TR[i, "Mild"] * Mild[resource_types[j]] +
+      m_TR[i, "Mod"] * Moderate[resource_types[j]] +
+      m_TR[i, "Sev"] * Severe[resource_types[j]]
+  }
+}
+
+print(HSCR_use)
+
+
+#calculate total units of HSCR type (by column) over the time horizon.
+tot_HSCR_bc <- colSums(HSCR_use)
+
+
+# Plot HSCR use over time
+plot(1:n_t, HSCR_use[, "GP_elective"], type = "l", ylab = "HSCR Use", xlab = "Time Horizon", main = "GP Elective")
+lines(1:n_t, HSCR_use[, "GP_emergent"], col = "blue")
+lines(1:n_t, HSCR_use[, "ED_emergent"], col = "green")
+lines(1:n_t, HSCR_use[, "Hosp_elective"], col = "red")
+lines(1:n_t, HSCR_use[, "Hosp_emergent"], col = "purple")
+lines(1:n_t, HSCR_use[, "Comm_care"], col = "orange")
+lines(1:n_t, HSCR_use[, "SS"], col = "brown")
+lines(1:n_t, HSCR_use[, "NH"], col = "black")
+
+# Add legend
+legend("topright", legend = resource_types, col = c("black", "blue", "green", "red", "purple", "orange", "brown", "black"), lty = 1)
+
+
+
+# HS costs
+c_GP_elective_hs <- 99
+c_GP_emergent_hs <- 148
+c_ED_hs <- 445
+c_Hosp_elective_hs <- 4685
+c_Hosp_emergent_hs <- 4023.05
+c_Comm_care_hs <- 22.5
+c_SS_hs <- 7.8
+c_NH_hs <- 40300
+
+# Create a vector of HS costs
+v_c_hs <- c(
+  c_GP_elective_hs,
+  c_GP_emergent_hs,
+  c_ED_hs,
+  c_Hosp_elective_hs,
+  c_Hosp_emergent_hs,
+  c_Comm_care_hs,
+  c_SS_hs,
+  c_NH_hs
+)
+
+# hs costs by HSCR type
+HSCR_hs_costs <- HSCR_use %*% v_c_hs
+
+# OOP costs
+c_GP_elective_oop <- 46
+c_GP_emergent_oop <- 92
+c_ED_oop <- 275
+c_Hosp_elective_oop <- 76
+c_Hosp_emergent_oop <- 1405
+c_Comm_care_oop <- 18
+c_SS_oop <- 0
+c_NH_oop <- 1830
+
+# Create a vector of OOP costs
+v_c_oop <- c(
+  c_GP_elective_oop,
+  c_GP_emergent_oop,
+  c_ED_oop,
+  c_Hosp_elective_oop,
+  c_Hosp_emergent_oop,
+  c_Comm_care_oop,
+  c_SS_oop,
+  c_NH_oop
+)
+
+print(v_c_oop)
+
+# OOP costs by HSCR type
+HSCR_oop_costs <- HSCR_use %*% v_c_oop
+
+# Utility of frailty states
+u_fit <- 0.86  
+u_mild <- 0.8
+u_moderate <- 0.74
+u_severe <- 0.65
+u_dead <- 0  
+
+
+# Create a vector of utility states
+v_u <- c(u_fit, u_mild, u_moderate, u_severe, u_dead)
+
+print(v_u)
+
+# total utilities by frailty state
+v_u_states <- m_TR %*% v_u
+
+#Disutility of a HSCR use
+du_GP_elective <- 0
+du_GP_emergent <- 0.009
+du_ED_emergent <- 0.025
+du_Hosp_elective <- 0.01
+du_Hosp_emergent <- 0.129
+du_Comm_care <- 0.096
+du_SS <- 0
+du_NH <- 0.29
+
+# Create a vector of disutility states
+v_du_HSCR <- c(
+  du_GP_elective,
+  du_GP_emergent,
+  du_ED_emergent,
+  du_Hosp_elective,
+  du_Hosp_emergent,
+  du_Comm_care,
+  du_SS,
+  du_NH
+)
+
+print(v_du_HSCR)
+
+# disutility  by HSCR type
+du_HSCR  <- HSCR_use %*% v_du_HSCR 
+
+#Total costs is sum of hs and oop costs
+costs_cycle <- HSCR_hs_costs + HSCR_oop_costs
+total_costs_bc <- sum(costs_cycle* v_dwe)  
+
+# Total QALYS is difference of utility of frailty state and disutility of HSCR type.
+qalys_cycle <- v_u_states-du_HSCR
+total_qalys_bc <- sum(qalys_cycle* v_dwe) 
+
+print(total_costs_bc)
+
+print(total_qalys_bc)
+
+print(tot_HSCR_bc)
